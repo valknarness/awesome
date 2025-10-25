@@ -1,0 +1,134 @@
+#!/usr/bin/env node
+
+/**
+ * AWESOME - A next-level ground-breaking CLI application
+ * for exploring and curating awesome lists from GitHub
+ */
+
+const { program } = require('commander');
+const { showBanner } = require('./lib/banner');
+const db = require('./lib/database');
+
+// Initialize database
+db.initialize();
+
+// Program metadata
+program
+  .name('awesome')
+  .description('A next-level CLI application for exploring awesome lists')
+  .version('1.0.0');
+
+// Commands
+program
+  .command('index')
+  .description('Build or rebuild the index from awesome lists')
+  .option('-f, --force', 'Force rebuild, clearing existing data')
+  .action(async (options) => {
+    const indexer = require('./lib/indexer');
+    await indexer.buildIndex(options.force);
+  });
+
+program
+  .command('search <query>')
+  .description('Search the indexed READMEs')
+  .option('-l, --limit <number>', 'Limit results', '50')
+  .action(async (query, options) => {
+    const search = require('./lib/search');
+    await search.quickSearch(query, parseInt(options.limit));
+  });
+
+program
+  .command('shell')
+  .description('Start interactive shell with search completion')
+  .action(async () => {
+    const shell = require('./lib/shell');
+    await shell.start();
+  });
+
+program
+  .command('browse')
+  .description('Browse awesome lists interactively')
+  .action(async () => {
+    const browser = require('./lib/browser');
+    await browser.browse();
+  });
+
+program
+  .command('random')
+  .description('Show a random README from the index')
+  .action(async () => {
+    const random = require('./lib/random');
+    await random.showRandom();
+  });
+
+program
+  .command('bookmarks')
+  .description('Manage your bookmarks')
+  .action(async () => {
+    const bookmarks = require('./lib/bookmarks');
+    await bookmarks.manage();
+  });
+
+program
+  .command('lists')
+  .description('Manage your custom awesome lists')
+  .action(async () => {
+    const customLists = require('./lib/custom-lists');
+    await customLists.manage();
+  });
+
+program
+  .command('history')
+  .description('View your reading history')
+  .action(async () => {
+    const history = require('./lib/history');
+    await history.show();
+  });
+
+program
+  .command('stats')
+  .description('Show index statistics')
+  .action(async () => {
+    const stats = require('./lib/stats');
+    await stats.show();
+  });
+
+program
+  .command('settings')
+  .description('Manage application settings')
+  .action(async () => {
+    const settings = require('./lib/settings');
+    await settings.manage();
+  });
+
+program
+  .command('checkout <repo>')
+  .description('Checkout a GitHub repository')
+  .option('-d, --directory <dir>', 'Target directory')
+  .action(async (repo, options) => {
+    const checkout = require('./lib/checkout');
+    await checkout.cloneRepository(repo, options.directory);
+  });
+
+// If no command is provided, show the main menu
+if (process.argv.length === 2) {
+  (async () => {
+    showBanner();
+    const menu = require('./lib/menu');
+    await menu.showMainMenu();
+  })();
+} else {
+  program.parse(process.argv);
+}
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n\nGoodbye! 👋\n');
+  db.close();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  db.close();
+  process.exit(0);
+});

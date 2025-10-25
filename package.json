@@ -1,0 +1,53 @@
+{
+  "name": "awesome",
+  "version": "1.0.0",
+  "description": "A next-level ground-breaking full featured CLI application for exploring awesome lists",
+  "main": "awesome",
+  "bin": {
+    "awesome": "./awesome"
+  },
+  "scripts": {
+    "start": "node awesome",
+    "debug": "node --inspect=9230 awesome"
+  },
+  "keywords": [
+    "awesome",
+    "cli",
+    "github",
+    "awesome-lists",
+    "search",
+    "indexer"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "chalk": "^4.1.2",
+    "gradient-string": "^2.0.2",
+    "figlet": "^1.7.0",
+    "commander": "^12.0.0",
+    "inquirer": "^8.2.6",
+    "inquirer-autocomplete-prompt": "^2.0.1",
+    "fuzzy": "^0.1.3",
+    "axios": "^1.6.7",
+    "cheerio": "^1.0.0-rc.12",
+    "marked": "^12.0.0",
+    "marked-terminal": "^7.0.0",
+    "cli-spinners": "^2.9.2",
+    "ora": "^5.4.1",
+    "boxen": "^5.1.2",
+    "cli-table3": "^0.6.3",
+    "node-emoji": "^2.1.3",
+    "diff": "^5.2.0",
+    "markdown-pdf": "^11.0.0",
+    "epub-gen": "^0.1.0",
+    "simple-git": "^3.22.0",
+    "nanospinner": "^1.1.0",
+    "cli-progress": "^3.12.0",
+    "kleur": "^4.1.5"
+  },
+  "devDependencies": {}
+}
