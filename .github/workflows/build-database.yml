@@ -59,6 +59,8 @@ jobs:
 
       - name: Build awesome database
         id: build
+        env:
+          CI: true
         run: |
           # Capture start time
           START_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
@@ -68,43 +70,27 @@ jobs:
           INDEX_MODE="${{ github.event.inputs.index_mode || 'full' }}"
           echo "Index mode: $INDEX_MODE"
 
-          # Build the index with automated selection
-          if [ "$INDEX_MODE" = "sample" ]; then
-            # For sample mode, we'll need to modify the script to accept input
-            echo "Building sample index (10 lists)..."
-            timeout 150m node -e "
-              const indexer = require('./lib/indexer');
-              (async () => {
-                try {
-                  // Simulate user choosing 'sample' option
-                  process.stdin.push('sample\n');
-                  await indexer.buildIndex(false);
-                  console.log('Sample index built successfully');
-                  process.exit(0);
-                } catch (error) {
-                  console.error('Failed to build index:', error.message);
-                  process.exit(1);
-                }
-              })();
-            " || echo "Index building completed with timeout"
-          else
-            echo "Building full index..."
-            timeout 150m node -e "
-              const indexer = require('./lib/indexer');
-              (async () => {
-                try {
-                  // Simulate user choosing 'full' option
-                  process.stdin.push('full\n');
-                  await indexer.buildIndex(false);
-                  console.log('Full index built successfully');
-                  process.exit(0);
-                } catch (error) {
-                  console.error('Failed to build index:', error.message);
-                  process.exit(1);
-                }
-              })();
-            " || echo "Index building completed with timeout"
-          fi
+          # Build the index in non-interactive mode
+          timeout 150m node -e "
+            const indexer = require('./lib/indexer');
+            (async () => {
+              try {
+                await indexer.buildIndex(false, '${INDEX_MODE}');
+                console.log('Index built successfully');
+                process.exit(0);
+              } catch (error) {
+                console.error('Failed to build index:', error.message);
+                console.error(error.stack);
+                process.exit(1);
+              }
+            })();
+          " || {
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "Index building timed out after 150 minutes"
+            fi
+            exit $EXIT_CODE
+          }
 
           # Capture end time
           END_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
