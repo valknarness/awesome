@@ -58,8 +58,8 @@ jobs:
           INDEX_MODE="${{ github.event.inputs.index_mode || 'full' }}"
           echo "Index mode: $INDEX_MODE"
 
-          # Build the index in non-interactive mode
-          timeout 150m node -e "
+          # Build the index in non-interactive mode (170m timeout, job timeout is 180m)
+          timeout 170m node -e "
             const db = require('./lib/database');
             const dbOps = require('./lib/db-operations');
             const indexer = require('./lib/indexer');
@@ -73,6 +73,8 @@ jobs:
                 if (process.env.GITHUB_TOKEN) {
                   dbOps.setSetting('githubToken', process.env.GITHUB_TOKEN);
                   console.log('GitHub token configured');
+                } else {
+                  console.warn('⚠️  WARNING: No GitHub token found! Rate limit will be 60/hour instead of 5000/hour');
                 }
 
                 // Build index
@@ -92,7 +94,8 @@ jobs:
           " || {
             EXIT_CODE=$?
             if [ $EXIT_CODE -eq 124 ]; then
-              echo "Index building timed out after 150 minutes"
+              echo "❌ Index building timed out after 170 minutes"
+              echo "This may indicate rate limiting issues or too many lists to index"
             fi
             exit $EXIT_CODE
           }
