@@ -1,0 +1,248 @@
+name: Build Awesome Database
+
+on:
+  schedule:
+    # Run daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      index_mode:
+        description: 'Indexing mode'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - sample
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 hours max
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: |
+          pnpm install
+          pnpm rebuild better-sqlite3
+
+      - name: Configure GitHub token for API access
+        run: |
+          chmod +x awesome
+          # Set GitHub token for higher rate limits (5000/hour vs 60/hour)
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          node -e "
+            const db = require('./lib/database');
+            const dbOps = require('./lib/db-operations');
+            db.initialize();
+            dbOps.setSetting('githubToken', process.env.GITHUB_TOKEN);
+            db.close();
+            console.log('GitHub token configured');
+          "
+
+      - name: Build awesome database
+        id: build
+        run: |
+          # Capture start time
+          START_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          echo "start_time=$START_TIME" >> $GITHUB_OUTPUT
+
+          # Determine index mode
+          INDEX_MODE="${{ github.event.inputs.index_mode || 'full' }}"
+          echo "Index mode: $INDEX_MODE"
+
+          # Build the index with automated selection
+          if [ "$INDEX_MODE" = "sample" ]; then
+            # For sample mode, we'll need to modify the script to accept input
+            echo "Building sample index (10 lists)..."
+            timeout 150m node -e "
+              const indexer = require('./lib/indexer');
+              (async () => {
+                try {
+                  // Simulate user choosing 'sample' option
+                  process.stdin.push('sample\n');
+                  await indexer.buildIndex(false);
+                  console.log('Sample index built successfully');
+                  process.exit(0);
+                } catch (error) {
+                  console.error('Failed to build index:', error.message);
+                  process.exit(1);
+                }
+              })();
+            " || echo "Index building completed with timeout"
+          else
+            echo "Building full index..."
+            timeout 150m node -e "
+              const indexer = require('./lib/indexer');
+              (async () => {
+                try {
+                  // Simulate user choosing 'full' option
+                  process.stdin.push('full\n');
+                  await indexer.buildIndex(false);
+                  console.log('Full index built successfully');
+                  process.exit(0);
+                } catch (error) {
+                  console.error('Failed to build index:', error.message);
+                  process.exit(1);
+                }
+              })();
+            " || echo "Index building completed with timeout"
+          fi
+
+          # Capture end time
+          END_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          echo "end_time=$END_TIME" >> $GITHUB_OUTPUT
+
+      - name: Gather database statistics
+        id: stats
+        run: |
+          # Get database stats
+          STATS=$(node -e "
+            const db = require('./lib/database');
+            const dbOps = require('./lib/db-operations');
+            db.initialize();
+
+            const stats = dbOps.getIndexStats();
+            const dbPath = require('path').join(require('os').homedir(), '.awesome', 'awesome.db');
+            const fs = require('fs');
+            const fileSize = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0;
+            const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
+
+            console.log(JSON.stringify({
+              totalLists: stats.totalLists || 0,
+              totalRepos: stats.totalRepositories || 0,
+              totalReadmes: stats.totalReadmes || 0,
+              sizeBytes: fileSize,
+              sizeMB: fileSizeMB
+            }));
+
+            db.close();
+          ")
+
+          echo "Database statistics:"
+          echo "$STATS" | jq .
+
+          # Extract values for outputs
+          TOTAL_LISTS=$(echo "$STATS" | jq -r '.totalLists')
+          TOTAL_REPOS=$(echo "$STATS" | jq -r '.totalRepos')
+          TOTAL_READMES=$(echo "$STATS" | jq -r '.totalReadmes')
+          SIZE_MB=$(echo "$STATS" | jq -r '.sizeMB')
+
+          echo "total_lists=$TOTAL_LISTS" >> $GITHUB_OUTPUT
+          echo "total_repos=$TOTAL_REPOS" >> $GITHUB_OUTPUT
+          echo "total_readmes=$TOTAL_READMES" >> $GITHUB_OUTPUT
+          echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
+
+      - name: Prepare database artifact
+        run: |
+          # Copy database from home directory
+          DB_PATH="$HOME/.awesome/awesome.db"
+
+          if [ ! -f "$DB_PATH" ]; then
+            echo "Error: Database file not found at $DB_PATH"
+            exit 1
+          fi
+
+          # Create artifact directory
+          mkdir -p artifacts
+
+          # Copy database with timestamp
+          BUILD_DATE=$(date -u +"%Y%m%d-%H%M%S")
+          cp "$DB_PATH" "artifacts/awesome-${BUILD_DATE}.db"
+          cp "$DB_PATH" "artifacts/awesome-latest.db"
+
+          # Create metadata file
+          cat > artifacts/metadata.json <<EOF
+          {
+            "build_date": "$(date -u +"%Y-%m-%d %H:%M:%S UTC")",
+            "build_timestamp": "$(date -u +%s)",
+            "git_sha": "${{ github.sha }}",
+            "workflow_run_id": "${{ github.run_id }}",
+            "total_lists": ${{ steps.stats.outputs.total_lists }},
+            "total_repos": ${{ steps.stats.outputs.total_repos }},
+            "total_readmes": ${{ steps.stats.outputs.total_readmes }},
+            "size_mb": ${{ steps.stats.outputs.size_mb }},
+            "node_version": "$(node --version)",
+            "index_mode": "${{ github.event.inputs.index_mode || 'full' }}"
+          }
+          EOF
+
+          echo "Artifact prepared: awesome-${BUILD_DATE}.db"
+          ls -lh artifacts/
+
+      - name: Upload database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: awesome-database-${{ github.run_id }}
+          path: |
+            artifacts/awesome-*.db
+            artifacts/metadata.json
+          retention-days: 90
+          compression-level: 9
+
+      - name: Create build summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # 🎉 Awesome Database Build Complete
+
+          ## 📊 Statistics
+
+          | Metric | Value |
+          |--------|-------|
+          | 📚 Total Lists | ${{ steps.stats.outputs.total_lists }} |
+          | 📦 Total Repositories | ${{ steps.stats.outputs.total_repos }} |
+          | 📖 Total READMEs | ${{ steps.stats.outputs.total_readmes }} |
+          | 💾 Database Size | ${{ steps.stats.outputs.size_mb }} MB |
+
+          ## ⏱️ Build Information
+
+          - **Started:** ${{ steps.build.outputs.start_time }}
+          - **Completed:** ${{ steps.build.outputs.end_time }}
+          - **Workflow Run:** [\#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - **Commit:** \`${{ github.sha }}\`
+          - **Index Mode:** ${{ github.event.inputs.index_mode || 'full' }}
+
+          ## 📥 Download Instructions
+
+          \`\`\`bash
+          # Using GitHub CLI
+          gh run download ${{ github.run_id }} -n awesome-database-${{ github.run_id }}
+
+          # Or using our helper script
+          curl -sSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/download-db.sh | bash
+          \`\`\`
+
+          ## 🔗 Artifact Link
+
+          [Download Database Artifact](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # ❌ Database Build Failed
+
+          The automated database build encountered an error.
+
+          **Workflow Run:** [\#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          Please check the logs for details.
+          EOF

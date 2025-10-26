@@ -38,11 +38,69 @@ Beautiful purple, pink, and gold gradient color scheme throughout the entire app
 
 ## 📦 Installation
 
+### Option 1: Use Pre-Built Database (Recommended) ⚡
+
+Skip the lengthy indexing process! Download a pre-built database that's automatically updated daily.
+
+```bash
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/awesome.git
+cd awesome
+
+# Install dependencies
+pnpm install
+pnpm rebuild better-sqlite3
+chmod +x awesome
+
+# Download pre-built database (easiest - uses GitHub CLI)
+./awesome db
+
+# Or use the standalone script
+./scripts/download-db.sh
+
+# Start using immediately!
+./awesome
+```
+
+**Database is rebuilt daily** by GitHub Actions with full indexing of all awesome lists!
+
+**Two ways to download:**
+- `./awesome db` - Built-in command with interactive menu
+- `./scripts/download-db.sh` - Standalone script with more options
+
+#### Download Database Manually
+
+If you prefer manual download or the script doesn't work:
+
+```bash
+# Install GitHub CLI if needed
+# macOS: brew install gh
+# Ubuntu: sudo apt install gh
+# Windows: winget install GitHub.cli
+
+# Authenticate with GitHub
+gh auth login
+
+# Download latest database artifact
+gh run download --repo YOUR_USERNAME/awesome -n awesome-database-latest
+
+# Move to correct location
+mkdir -p ~/.awesome
+cp awesome-*.db ~/.awesome/awesome.db
+```
+
+### Option 2: Build Database Locally 🔨
+
+Build the index yourself (takes 1-2 hours for full indexing):
+
 ```bash
 cd /home/valknar/Projects/node.js/awesome
 pnpm install
 pnpm rebuild better-sqlite3
 chmod +x awesome
+
+# Build the index
+./awesome index
 ```
 
 ## ⚡ GitHub Rate Limits - SOLVED with OAuth! 🔐
@@ -86,7 +144,10 @@ See [OAUTH_SETUP.md](OAUTH_SETUP.md) for complete guide!
 
 ### Commands
 ```bash
-# Build the index (run this first!)
+# Download pre-built database (fast!)
+./awesome db
+
+# Build the index locally (slow - 1-2 hours)
 ./awesome index
 
 # Search
@@ -163,6 +224,69 @@ The application uses SQLite3 with FTS5 for full-text search. Data is stored in `
 - **Commander.js** - CLI framework
 - **Ora & Nanospinner** - Loading animations
 - **pnpm** - Fast, efficient package manager
+
+## 🤖 Automated Database Builds
+
+The repository includes GitHub Actions workflows for automated database management:
+
+### Daily Database Build
+
+**Schedule:** Runs daily at 02:00 UTC
+
+**What it does:**
+- Fetches all awesome lists from [sindresorhus/awesome](https://github.com/sindresorhus/awesome)
+- Recursively indexes all README files
+- Collects GitHub metadata (stars, forks, etc.)
+- Compresses and uploads database as artifact
+- Generates build report with statistics
+
+**Manual Trigger:**
+You can manually trigger a database build from the GitHub Actions tab:
+```bash
+gh workflow run build-database.yml -f index_mode=full
+```
+
+**Artifact Details:**
+- **Retention:** 90 days
+- **Size:** ~50-200MB (compressed)
+- **Contains:** Full database + metadata JSON
+- **Naming:** `awesome-database-{run_id}`
+
+### Artifact Cleanup
+
+**Schedule:** Runs daily at 03:00 UTC (after database build)
+
+**What it does:**
+- Removes artifacts older than 30 days (configurable)
+- Cleans up old workflow runs
+- Generates cleanup report
+- Dry-run mode available for testing
+
+**Manual Trigger:**
+```bash
+# Standard cleanup (30 days retention)
+gh workflow run cleanup-artifacts.yml
+
+# Custom retention period
+gh workflow run cleanup-artifacts.yml -f retention_days=60
+
+# Dry run (preview only)
+gh workflow run cleanup-artifacts.yml -f dry_run=true
+```
+
+### Download Helper Script
+
+The `scripts/download-db.sh` script provides an interactive interface to:
+- List available database builds
+- View build metadata (date, size, commit)
+- Download and install selected database
+- Backup existing database automatically
+
+**Features:**
+- Interactive selection menu
+- Automatic backup of existing databases
+- GitHub CLI integration
+- Cross-platform support (Linux, macOS, Windows/Git Bash)
 
 ## 📝 License
 

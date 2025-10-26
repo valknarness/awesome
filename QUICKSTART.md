@@ -11,7 +11,31 @@ chmod +x awesome
 
 ## First Run
 
-1. **Build the Index** (required first step)
+### Option 1: Download Pre-Built Database (Fast! ⚡)
+
+1. **Download Database** (takes ~1 minute)
+   ```bash
+   ./awesome db
+   ```
+   Or use the script:
+   ```bash
+   ./scripts/download-db.sh
+   ```
+   This will:
+   - Show available database builds
+   - Let you select one to download
+   - Automatically install it
+   - Backup your existing database (if any)
+
+2. **Start Exploring**
+   ```bash
+   ./awesome
+   ```
+   Opens the beautiful interactive menu with all features!
+
+### Option 2: Build Index Locally (Slow - 1-2 hours)
+
+1. **Build the Index** (takes 1-2 hours)
    ```bash
    ./awesome index
    ```
@@ -61,7 +85,8 @@ awesome> help
 | Command | Description |
 |---------|-------------|
 | `./awesome` | Interactive menu (recommended) |
-| `./awesome index` | Build/rebuild index |
+| `./awesome db` | Download pre-built database ⚡ |
+| `./awesome index` | Build/rebuild index locally |
 | `./awesome search "query"` | Quick search |
 | `./awesome shell` | Interactive shell |
 | `./awesome browse` | Browse awesome lists |

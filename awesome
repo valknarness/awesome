@@ -110,6 +110,14 @@ program
     await checkout.cloneRepository(repo, options.directory);
   });
 
+program
+  .command('db')
+  .description('Download pre-built database from GitHub Actions')
+  .action(async () => {
+    const dbDownload = require('./lib/db-download');
+    await dbDownload.manage();
+  });
+
 // If no command is provided, show the main menu
 if (process.argv.length === 2) {
   (async () => {

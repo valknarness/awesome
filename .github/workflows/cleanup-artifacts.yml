@@ -1,0 +1,248 @@
+name: Cleanup Old Artifacts
+
+on:
+  schedule:
+    # Run daily at 03:00 UTC (after database build)
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      retention_days:
+        description: 'Keep artifacts newer than X days'
+        required: false
+        default: '30'
+        type: string
+      dry_run:
+        description: 'Dry run (list only, do not delete)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup GitHub CLI
+        run: |
+          # GitHub CLI is pre-installed on ubuntu-latest
+          gh --version
+
+      - name: List and cleanup old artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Configuration
+          RETENTION_DAYS="${{ github.event.inputs.retention_days || '30' }}"
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          CUTOFF_DATE=$(date -u -d "$RETENTION_DAYS days ago" +%s)
+
+          echo "🧹 Artifact Cleanup Configuration"
+          echo "=================================="
+          echo "Retention days: $RETENTION_DAYS"
+          echo "Cutoff date: $(date -u -d "@$CUTOFF_DATE" '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "Dry run: $DRY_RUN"
+          echo ""
+
+          # Get all artifacts
+          echo "📦 Fetching artifacts..."
+          ARTIFACTS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+            | jq -r '.artifacts[]')
+
+          if [ -z "$ARTIFACTS" ]; then
+            echo "No artifacts found"
+            exit 0
+          fi
+
+          # Initialize counters
+          TOTAL_COUNT=0
+          DELETE_COUNT=0
+          KEEP_COUNT=0
+          SPACE_FREED=0
+
+          # Create summary arrays
+          declare -a TO_DELETE
+          declare -a TO_KEEP
+
+          # Process each artifact
+          while IFS= read -r artifact; do
+            ID=$(echo "$artifact" | jq -r '.id')
+            NAME=$(echo "$artifact" | jq -r '.name')
+            SIZE=$(echo "$artifact" | jq -r '.size_in_bytes')
+            CREATED=$(echo "$artifact" | jq -r '.created_at')
+            EXPIRED=$(echo "$artifact" | jq -r '.expired')
+
+            # Convert created_at to timestamp
+            CREATED_TS=$(date -u -d "$CREATED" +%s)
+
+            TOTAL_COUNT=$((TOTAL_COUNT + 1))
+
+            # Check if artifact should be deleted
+            if [ "$EXPIRED" = "true" ] || [ $CREATED_TS -lt $CUTOFF_DATE ]; then
+              DELETE_COUNT=$((DELETE_COUNT + 1))
+              SPACE_FREED=$((SPACE_FREED + SIZE))
+
+              SIZE_MB=$(echo "scale=2; $SIZE / 1024 / 1024" | bc)
+              AGE_DAYS=$(echo "($CUTOFF_DATE - $CREATED_TS) / 86400" | bc)
+
+              TO_DELETE+=("| $NAME | $SIZE_MB MB | $(date -u -d "$CREATED" '+%Y-%m-%d') | $AGE_DAYS days old |")
+
+              if [ "$DRY_RUN" = "false" ]; then
+                echo "🗑️  Deleting: $NAME (ID: $ID, Size: $SIZE_MB MB, Age: $AGE_DAYS days)"
+                gh api \
+                  --method DELETE \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "/repos/${{ github.repository }}/actions/artifacts/$ID" \
+                  && echo "   ✓ Deleted" || echo "   ✗ Failed to delete"
+              else
+                echo "🔍 Would delete: $NAME (ID: $ID, Size: $SIZE_MB MB, Age: $AGE_DAYS days)"
+              fi
+            else
+              KEEP_COUNT=$((KEEP_COUNT + 1))
+
+              SIZE_MB=$(echo "scale=2; $SIZE / 1024 / 1024" | bc)
+              AGE_DAYS=$(echo "($(date +%s) - $CREATED_TS) / 86400" | bc)
+
+              TO_KEEP+=("| $NAME | $SIZE_MB MB | $(date -u -d "$CREATED" '+%Y-%m-%d') | $AGE_DAYS days old |")
+            fi
+          done < <(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+            | jq -c '.artifacts[]')
+
+          # Calculate space freed in MB
+          SPACE_FREED_MB=$(echo "scale=2; $SPACE_FREED / 1024 / 1024" | bc)
+
+          echo ""
+          echo "📊 Cleanup Summary"
+          echo "=================="
+          echo "Total artifacts: $TOTAL_COUNT"
+          echo "Deleted/Would delete: $DELETE_COUNT"
+          echo "Kept: $KEEP_COUNT"
+          echo "Space freed: $SPACE_FREED_MB MB"
+
+          # Create GitHub Actions summary
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # 🧹 Artifact Cleanup Report
+
+          ## Configuration
+
+          - **Retention Period:** $RETENTION_DAYS days
+          - **Cutoff Date:** $(date -u -d "@$CUTOFF_DATE" '+%Y-%m-%d %H:%M:%S UTC')
+          - **Mode:** $([ "$DRY_RUN" = "true" ] && echo "🔍 Dry Run" || echo "🗑️ Delete")
+
+          ## Summary
+
+          | Metric | Value |
+          |--------|-------|
+          | 📦 Total Artifacts | $TOTAL_COUNT |
+          | 🗑️ Deleted | $DELETE_COUNT |
+          | ✅ Kept | $KEEP_COUNT |
+          | 💾 Space Freed | $SPACE_FREED_MB MB |
+
+          EOF
+
+          # Add deleted artifacts table if any
+          if [ $DELETE_COUNT -gt 0 ]; then
+            cat >> $GITHUB_STEP_SUMMARY <<EOF
+          ## 🗑️ Deleted Artifacts
+
+          | Name | Size | Created | Age |
+          |------|------|---------|-----|
+          EOF
+            printf '%s\n' "${TO_DELETE[@]}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Add kept artifacts table if any
+          if [ $KEEP_COUNT -gt 0 ]; then
+            cat >> $GITHUB_STEP_SUMMARY <<EOF
+
+          ## ✅ Kept Artifacts (Recent)
+
+          | Name | Size | Created | Age |
+          |------|------|---------|-----|
+          EOF
+            # Show only first 10 kept artifacts
+            printf '%s\n' "${TO_KEEP[@]:0:10}" >> $GITHUB_STEP_SUMMARY
+
+            if [ $KEEP_COUNT -gt 10 ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "*...and $((KEEP_COUNT - 10)) more*" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+
+          ## 📋 Next Scheduled Run
+
+          This workflow runs daily at 03:00 UTC to maintain artifact storage.
+
+          **Manual trigger:** You can also run this workflow manually from the Actions tab with custom retention settings.
+          EOF
+
+      - name: Cleanup workflow runs
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo ""
+          echo "🧹 Cleaning up old workflow runs..."
+
+          # Keep only last 50 workflow runs
+          RUNS_TO_DELETE=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/runs?per_page=100" \
+            | jq -r '.workflow_runs[50:] | .[].id')
+
+          if [ -z "$RUNS_TO_DELETE" ]; then
+            echo "No old workflow runs to delete"
+          else
+            DELETE_COUNT=0
+            for RUN_ID in $RUNS_TO_DELETE; do
+              # Only delete runs older than 30 days
+              RUN_DATE=$(gh api \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "/repos/${{ github.repository }}/actions/runs/$RUN_ID" \
+                | jq -r '.created_at')
+
+              RUN_TS=$(date -u -d "$RUN_DATE" +%s)
+              CUTOFF=$(date -u -d "30 days ago" +%s)
+
+              if [ $RUN_TS -lt $CUTOFF ]; then
+                echo "Deleting workflow run: $RUN_ID"
+                gh api \
+                  --method DELETE \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "/repos/${{ github.repository }}/actions/runs/$RUN_ID" \
+                  && DELETE_COUNT=$((DELETE_COUNT + 1)) || echo "Failed to delete run $RUN_ID"
+              fi
+            done
+
+            echo "Deleted $DELETE_COUNT old workflow runs"
+          fi
+
+      - name: Report failures
+        if: failure()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # ❌ Cleanup Failed
+
+          The artifact cleanup workflow encountered an error.
+
+          Please check the logs for details.
+          EOF
