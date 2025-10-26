@@ -42,25 +42,13 @@ jobs:
         run: |
           pnpm install
           pnpm rebuild better-sqlite3
-
-      - name: Configure GitHub token for API access
-        run: |
           chmod +x awesome
-          # Set GitHub token for higher rate limits (5000/hour vs 60/hour)
-          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          node -e "
-            const db = require('./lib/database');
-            const dbOps = require('./lib/db-operations');
-            db.initialize();
-            dbOps.setSetting('githubToken', process.env.GITHUB_TOKEN);
-            db.close();
-            console.log('GitHub token configured');
-          "
 
       - name: Build awesome database
         id: build
         env:
           CI: true
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Capture start time
           START_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
@@ -72,10 +60,27 @@ jobs:
 
           # Build the index in non-interactive mode
           timeout 150m node -e "
+            const db = require('./lib/database');
+            const dbOps = require('./lib/db-operations');
             const indexer = require('./lib/indexer');
+
             (async () => {
               try {
+                // Initialize database
+                db.initialize();
+
+                // Set GitHub token if available
+                if (process.env.GITHUB_TOKEN) {
+                  dbOps.setSetting('githubToken', process.env.GITHUB_TOKEN);
+                  console.log('GitHub token configured');
+                }
+
+                // Build index
                 await indexer.buildIndex(false, '${INDEX_MODE}');
+
+                // Close database
+                db.close();
+
                 console.log('Index built successfully');
                 process.exit(0);
               } catch (error) {
