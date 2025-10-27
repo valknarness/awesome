@@ -50,6 +50,8 @@ jobs:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Pass env vars!
+          CI=${CI:-false}
           # Capture start time
           START_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           echo "start_time=$START_TIME" >> $GITHUB_OUTPUT
