@@ -1,0 +1,15 @@
+[Unit]
+Description=Daily Awesome Database Indexing Timer
+Requires=awesome-index.service
+
+[Timer]
+# Run daily at {{SCHEDULE_TIME}}
+OnCalendar=daily
+OnCalendar={{SCHEDULE_TIME}}
+Persistent=true
+
+# Random delay to avoid peak times (optional)
+# RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

@@ -349,6 +349,209 @@ The `scripts/download-db.sh` script provides an interactive interface to:
 
 ---
 
+## 🖥️ VPS Deployment (Automated Remote Indexing!)
+
+Want to run automated database builds on YOUR OWN server? We got you COVERED! Deploy to any VPS with systemd and optionally deploy to Docker containers!
+
+### Quick Start (The EASY Way!)
+
+```bash
+# From your local machine, run the interactive setup script
+cd deploy
+./setup-vps.sh
+```
+
+The script will prompt you for configuration and handle EVERYTHING:
+- ✅ Process templates with YOUR configuration
+- ✅ Copy files to remote server via SSH
+- ✅ Install and enable systemd service
+- ✅ Start the timer for daily indexing
+- ✅ Show status and helpful commands
+
+### Prerequisites
+
+**On your VPS:**
+- SSH access (root or sudo user)
+- Systemd installed (standard on modern Linux)
+- awesome CLI installed and configured
+- Docker (optional, for container deployment)
+- GitHub token configured via `awesome settings`
+
+**On your local machine:**
+- SSH key-based authentication to VPS
+- Bash shell (Linux, macOS, Windows/Git Bash)
+
+### Configuration Options
+
+The setup script will interactively prompt for:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| SSH Host | `root@vps` | SSH connection string (user@hostname) |
+| User | `root` | User to run service as |
+| Working Directory | `/root` | Directory for scripts |
+| Awesome Command | `/usr/local/bin/awesome` | Path to awesome CLI |
+| Log File | `/var/log/awesome-index.log` | Log file location |
+| Database Source | `/root/.awesome/awesome.db` | Database file path |
+| Database Staging | `/tmp/awesome-database` | Temporary staging directory |
+| Docker Container | `awesome_app` | Container name (empty to skip) |
+| Container Path | `/home/node/.awesome` | Database path in container |
+| Schedule Time | `02:00` | Daily run time (HH:MM format) |
+| Incremental | `true` | Use incremental indexing by default |
+
+### What Gets Deployed
+
+The deployment creates:
+
+1. **`/root/scripts/awesome-index.sh`** - Main indexing script that:
+   - Runs `awesome index --incremental` (or `--full`)
+   - Logs output to configured log file
+   - Stages database in temporary directory
+   - Optionally deploys to Docker container
+   - Verifies deployment and cleans up
+
+2. **`/etc/systemd/system/awesome-index.service`** - Systemd service that:
+   - Runs as configured user
+   - Has restart-on-failure handling
+   - Logs to systemd journal
+   - Can be triggered manually
+
+3. **`/etc/systemd/system/awesome-index.timer`** - Systemd timer that:
+   - Schedules daily runs at configured time
+   - Persistent (runs missed executions on boot)
+   - Integrates with timers.target
+
+### Monitoring & Management
+
+**View logs:**
+```bash
+# Real-time service logs
+ssh root@vps 'journalctl -u awesome-index.service -f'
+
+# View log file
+ssh root@vps 'tail -f /var/log/awesome-index.log'
+```
+
+**Check status:**
+```bash
+# Timer status
+ssh root@vps 'systemctl status awesome-index.timer'
+
+# Next scheduled run
+ssh root@vps 'systemctl list-timers awesome-index.timer'
+
+# Service status
+ssh root@vps 'systemctl status awesome-index.service'
+```
+
+**Manual trigger:**
+```bash
+# Run indexing immediately
+ssh root@vps 'systemctl start awesome-index.service'
+```
+
+**Manage timer:**
+```bash
+# Stop automatic runs
+ssh root@vps 'systemctl stop awesome-index.timer'
+
+# Disable automatic runs
+ssh root@vps 'systemctl disable awesome-index.timer'
+
+# Re-enable
+ssh root@vps 'systemctl enable --now awesome-index.timer'
+```
+
+### Docker Container Deployment
+
+If you provide a container name during setup, the script will automatically:
+1. Copy database to staging directory
+2. Check if container exists
+3. Deploy database via `docker cp`
+4. Verify deployment with `ls -lh` in container
+5. Clean up staging directory
+
+**Optional container restart** (commented by default):
+```bash
+# Edit /root/scripts/awesome-index.sh on VPS and uncomment:
+docker restart "$CONTAINER"
+```
+
+### Manual Deployment (Advanced)
+
+If you prefer manual control, you can deploy the templates yourself:
+
+```bash
+# On your local machine
+cd deploy
+
+# 1. Process templates manually
+sed -e "s|{{LOG_FILE}}|/var/log/awesome-index.log|g" \
+    -e "s|{{DB_SOURCE}}|/root/.awesome/awesome.db|g" \
+    # ... (substitute all variables)
+    awesome-index.sh.template > awesome-index.sh
+
+# 2. Copy to VPS
+scp awesome-index.sh root@vps:/root/scripts/
+scp awesome-index.service root@vps:/etc/systemd/system/
+scp awesome-index.timer root@vps:/etc/systemd/system/
+
+# 3. Enable on VPS
+ssh root@vps 'chmod +x /root/scripts/awesome-index.sh'
+ssh root@vps 'systemctl daemon-reload'
+ssh root@vps 'systemctl enable --now awesome-index.timer'
+```
+
+### Troubleshooting
+
+**Service fails to start:**
+```bash
+# Check service logs
+ssh root@vps 'journalctl -u awesome-index.service -n 50'
+
+# Verify script is executable
+ssh root@vps 'ls -l /root/scripts/awesome-index.sh'
+
+# Test script manually
+ssh root@vps '/root/scripts/awesome-index.sh'
+```
+
+**Docker deployment fails:**
+```bash
+# Verify container exists and is running
+ssh root@vps 'docker ps -a | grep awesome_app'
+
+# Check container path exists
+ssh root@vps 'docker exec awesome_app ls -la /home/node/.awesome'
+
+# Test docker cp manually
+ssh root@vps 'docker cp /root/.awesome/awesome.db awesome_app:/home/node/.awesome/'
+```
+
+**Indexing takes too long / times out:**
+```bash
+# Switch to incremental mode (edit service or run with flag)
+ssh root@vps 'sed -i "s/--full/--incremental/g" /root/scripts/awesome-index.sh'
+
+# Verify GitHub token is configured
+ssh root@vps 'awesome settings'
+```
+
+**Timer not running:**
+```bash
+# Verify timer is enabled and active
+ssh root@vps 'systemctl is-enabled awesome-index.timer'
+ssh root@vps 'systemctl is-active awesome-index.timer'
+
+# Check timer configuration
+ssh root@vps 'systemctl cat awesome-index.timer'
+
+# Reload systemd if you made changes
+ssh root@vps 'systemctl daemon-reload'
+```
+
+---
+
 ## 🌟 What Makes This Cosmically AWESOME?
 
 1. **🎨 Funkadelic Aesthetics** - Purple/pink/gold theme that'll make your EYES happy!

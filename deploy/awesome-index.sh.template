@@ -1,0 +1,84 @@
+#!/bin/bash
+set -e
+
+# Configuration (filled by setup script)
+LOG_FILE="{{LOG_FILE}}"
+DB_SOURCE="{{DB_SOURCE}}"
+DB_STAGING="{{DB_STAGING}}"
+CONTAINER="{{CONTAINER}}"
+CONTAINER_PATH="{{CONTAINER_PATH}}"
+AWESOME_CMD="{{AWESOME_CMD}}"
+INCREMENTAL="{{INCREMENTAL}}"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+log "============================================"
+log "Starting awesome database indexing..."
+log "Incremental mode: $INCREMENTAL"
+
+# Run indexing
+cd "$(dirname "$DB_SOURCE")"
+if [ "$INCREMENTAL" = "true" ]; then
+    INDEX_CMD="$AWESOME_CMD index --incremental"
+else
+    INDEX_CMD="$AWESOME_CMD index --full"
+fi
+
+log "Running: $INDEX_CMD"
+if $INDEX_CMD 2>&1 | tee -a "$LOG_FILE"; then
+    log "✓ Indexing completed successfully"
+else
+    EXIT_CODE=$?
+    log "✗ Indexing failed with exit code $EXIT_CODE"
+    exit $EXIT_CODE
+fi
+
+# Verify database exists
+if [ ! -f "$DB_SOURCE" ]; then
+    log "✗ Database file not found at $DB_SOURCE"
+    exit 1
+fi
+
+# Get database stats
+DB_SIZE=$(du -h "$DB_SOURCE" | cut -f1)
+log "Database size: $DB_SIZE"
+
+# Prepare staging directory
+log "Preparing staging directory..."
+rm -rf "$DB_STAGING"
+mkdir -p "$DB_STAGING"
+cp "$DB_SOURCE" "$DB_STAGING/"
+log "✓ Database copied to staging"
+
+# Check if Docker container exists
+if ! docker inspect "$CONTAINER" &>/dev/null; then
+    log "⚠️  Docker container '$CONTAINER' not found, skipping deployment"
+    log "✓ Process completed (indexing only)"
+    exit 0
+fi
+
+# Copy to Docker container
+log "Deploying to Docker container '$CONTAINER'..."
+if docker cp "$DB_STAGING/." "$CONTAINER:$CONTAINER_PATH/"; then
+    log "✓ Database deployed successfully"
+
+    # Verify in container
+    docker exec "$CONTAINER" ls -lh "$CONTAINER_PATH/awesome.db" 2>&1 | tee -a "$LOG_FILE" || true
+
+    # Optional: restart container to pick up new database
+    # Uncomment if your app needs a restart
+    # log "Restarting container..."
+    # docker restart "$CONTAINER"
+else
+    log "✗ Docker copy failed"
+    exit 1
+fi
+
+# Cleanup
+rm -rf "$DB_STAGING"
+log "✓ Cleanup completed"
+
+log "✓ Process completed successfully"
+log "============================================"
