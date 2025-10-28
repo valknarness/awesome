@@ -22,7 +22,7 @@ permissions:
 jobs:
   build-database:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 3 hours max
+    timeout-minutes: 360  # 6 hours (GitHub Actions maximum for free tier)
 
     steps:
       - name: Checkout repository
@@ -60,8 +60,8 @@ jobs:
           INDEX_MODE="${{ github.event.inputs.index_mode || 'full' }}"
           echo "Index mode: $INDEX_MODE"
 
-          # Build the index in non-interactive mode (170m timeout, job timeout is 180m)
-          timeout 170m node -e "
+          # Build the index in non-interactive mode (350m timeout, job timeout is 360m)
+          timeout 350m node -e "
             const db = require('./lib/database');
             const dbOps = require('./lib/db-operations');
             const indexer = require('./lib/indexer');
@@ -96,7 +96,7 @@ jobs:
           " || {
             EXIT_CODE=$?
             if [ $EXIT_CODE -eq 124 ]; then
-              echo "❌ Index building timed out after 170 minutes"
+              echo "❌ Index building timed out after 350 minutes"
               echo "This may indicate rate limiting issues or too many lists to index"
             fi
             exit $EXIT_CODE
