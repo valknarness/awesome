@@ -14,6 +14,11 @@ on:
         options:
           - full
           - sample
+      incremental:
+        description: 'Incremental mode (skip unchanged repos)'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -49,6 +54,7 @@ jobs:
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INCREMENTAL: ${{ github.event.inputs.incremental || 'true' }}
         run: |
           # Pass env vars!
           CI=${CI:-false}
@@ -56,9 +62,15 @@ jobs:
           START_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           echo "start_time=$START_TIME" >> $GITHUB_OUTPUT
 
-          # Determine index mode
+          # Determine index mode and incremental setting
           INDEX_MODE="${{ github.event.inputs.index_mode || 'full' }}"
+          INCREMENTAL="${{ github.event.inputs.incremental }}"
+          # Default to true if not specified (for scheduled runs)
+          if [ -z "$INCREMENTAL" ]; then
+            INCREMENTAL="true"
+          fi
           echo "Index mode: $INDEX_MODE"
+          echo "Incremental: $INCREMENTAL"
 
           # Build the index in non-interactive mode (350m timeout, job timeout is 360m)
           timeout 350m node -e "
@@ -79,8 +91,9 @@ jobs:
                   console.warn('⚠️  WARNING: No GitHub token found! Rate limit will be 60/hour instead of 5000/hour');
                 }
 
-                // Build index
-                await indexer.buildIndex(false, '${INDEX_MODE}');
+                // Build index with incremental flag
+                const incremental = process.env.INCREMENTAL === 'true';
+                await indexer.buildIndex(false, '${INDEX_MODE}', incremental);
 
                 // Close database
                 db.close();

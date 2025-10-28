@@ -23,9 +23,13 @@ program
   .command('index')
   .description('Build or rebuild the index from awesome lists')
   .option('-f, --force', 'Force rebuild, clearing existing data')
+  .option('-i, --incremental', 'Incremental mode: only update changed repositories (default: true)')
+  .option('--full', 'Full mode: re-index all repositories even if unchanged')
   .action(async (options) => {
     const indexer = require('./lib/indexer');
-    await indexer.buildIndex(options.force);
+    // Determine incremental mode: default true unless --full is specified
+    const incremental = options.full ? false : (options.incremental !== false);
+    await indexer.buildIndex(options.force, null, incremental);
   });
 
 program
