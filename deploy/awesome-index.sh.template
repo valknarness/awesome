@@ -61,8 +61,8 @@ fi
 
 # Copy to Docker container
 log "Deploying to Docker container '$CONTAINER'..."
-if docker cp "$DB_STAGING/." "$CONTAINER:$CONTAINER_PATH/"; then
-    log "✓ Database deployed successfully"
+if docker cp "$DB_STAGING/." "$CONTAINER:$CONTAINER_PATH/" && docker exec -u root "$CONTAINER" chown -R node:node "$CONTAINER_PATH/"; then
+    log "✓ Database deployed successfully (with correct permissions)"
 
     # Verify in container
     docker exec "$CONTAINER" ls -lh "$CONTAINER_PATH/awesome.db" 2>&1 | tee -a "$LOG_FILE" || true
